@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "App.tsx",
+    "src/**/__tests__/**/*.ts",
+    "src/lib/apiClient.ts",
+    "src/lib/offlineMutations.ts",
+    "src/lib/queryClient.ts",
+    "src/observability/index.ts"
+  ],
+  "project": ["**/*.{js,jsx,ts,tsx}", "*.d.ts"],
+  "ignoreDependencies": ["expo-updates"]
+}
