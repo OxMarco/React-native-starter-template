@@ -4,11 +4,30 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "base": {
+      "env": {
+        "APP_NAME": "RN Starter",
+        "APP_SLUG": "rn-starter",
+        "APP_SCHEME": "rnstarter",
+        "IOS_BUNDLE_IDENTIFIER": "com.example.rnstarter",
+        "ANDROID_PACKAGE": "com.example.rnstarter"
+      }
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
     "preview": {
+      "extends": "base",
       "distribution": "internal"
     },
     "production": {
+      "extends": "base",
       "autoIncrement": true
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

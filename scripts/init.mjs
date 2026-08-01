@@ -17,9 +17,33 @@ function identifierPart(value) {
   return /^[a-zA-Z]/.test(normalized) ? normalized.toLowerCase() : `app${normalized}`;
 }
 
-async function ask(question, fallback) {
-  const answer = (await rl.question(`${question} (${fallback}): `)).trim();
-  return answer || fallback;
+// Validated at prompt time rather than at prebuild: an application id that only
+// Gradle or Xcode rejects surfaces minutes later, inside a native build log.
+const VALIDATORS = {
+  slug: {
+    test: (value) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value),
+    hint: 'lowercase letters, digits, and single hyphens (my-app)',
+  },
+  scheme: {
+    test: (value) => /^[a-z][a-z0-9+.-]*$/.test(value),
+    hint: 'a letter followed by letters, digits, +, . or - (myapp)',
+  },
+  applicationId: {
+    // Android application ids and iOS bundle identifiers overlap on this
+    // shape: dot-separated segments, each starting with a letter. Android also
+    // rejects reserved Java keywords, which is why `new`/`class` style
+    // segments are worth avoiding even though this does not enumerate them.
+    test: (value) => /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/.test(value),
+    hint: 'at least two dot-separated segments, each starting with a letter (com.acme.myapp)',
+  },
+};
+
+async function ask(question, fallback, validator) {
+  for (;;) {
+    const answer = (await rl.question(`${question} (${fallback}): `)).trim() || fallback;
+    if (!validator || validator.test(answer)) return answer;
+    console.log(`  "${answer}" is not valid — expected ${validator.hint}.`);
+  }
 }
 
 try {
@@ -42,19 +66,31 @@ try {
 
 async function initialize() {
   const appName = await ask('App display name', 'My App');
-  const slug = await ask('Expo slug', slugify(appName) || 'my-app');
+  const slug = await ask('Expo slug', slugify(appName) || 'my-app', VALIDATORS.slug);
   const identifier = identifierPart(slug) || 'myapp';
-  const scheme = await ask('Deep-link scheme', identifier);
+  const scheme = await ask('Deep-link scheme', identifier, VALIDATORS.scheme);
   const organization = await ask('Reverse-domain organization', 'com.example');
-  const iosBundleIdentifier = await ask('iOS bundle identifier', `${organization}.${identifier}`);
-  const androidPackage = await ask('Android package', iosBundleIdentifier);
+  const iosBundleIdentifier = await ask(
+    'iOS bundle identifier',
+    `${organization}.${identifier}`,
+    VALIDATORS.applicationId
+  );
+  const androidPackage = await ask(
+    'Android package',
+    iosBundleIdentifier,
+    VALIDATORS.applicationId
+  );
+
+  const identity = {
+    APP_NAME: appName,
+    APP_SLUG: slug,
+    APP_SCHEME: scheme,
+    IOS_BUNDLE_IDENTIFIER: iosBundleIdentifier,
+    ANDROID_PACKAGE: androidPackage,
+  };
 
   const env = [
-    `APP_NAME=${JSON.stringify(appName)}`,
-    `APP_SLUG=${JSON.stringify(slug)}`,
-    `APP_SCHEME=${JSON.stringify(scheme)}`,
-    `IOS_BUNDLE_IDENTIFIER=${JSON.stringify(iosBundleIdentifier)}`,
-    `ANDROID_PACKAGE=${JSON.stringify(androidPackage)}`,
+    ...Object.entries(identity).map(([key, value]) => `${key}=${JSON.stringify(value)}`),
     '',
     '# Add this after running `npx eas-cli init`.',
     '# EAS_PROJECT_ID="00000000-0000-0000-0000-000000000000"',
@@ -63,9 +99,32 @@ async function initialize() {
 
   writeFileSync('.env.local', env);
 
-  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+  const packageJson = readJson('package.json');
   packageJson.name = slug;
-  writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`);
+  writeJson('package.json', packageJson);
 
-  console.log('\nStarter initialized. Next: npm install, then npm start.');
+  // .env.local is gitignored and EAS Build uploads the git-tracked project, so
+  // the same identity has to live somewhere EAS can see it. eas.json is
+  // committed and holds nothing secret, which makes it the right home: writing
+  // both here is what keeps `npm run init` followed by a cloud build working.
+  const easJson = readJson('eas.json');
+  easJson.build = { ...easJson.build, base: { ...easJson.build?.base, env: identity } };
+  writeJson('eas.json', easJson);
+
+  console.log(`
+Starter initialized.
+
+  .env.local   local Expo CLI builds
+  eas.json     the same identity for EAS cloud builds
+  package.json renamed to "${slug}"
+
+Next: npm install, then npm start.`);
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function writeJson(path, value) {
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }

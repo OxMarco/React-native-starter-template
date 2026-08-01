@@ -1,7 +1,7 @@
 import { Text, View } from 'react-native';
 
 import Card from '@/components/Card';
-import Screen from '@/components/Screen';
+import Screen, { TAB_SCREEN_EDGES } from '@/components/Screen';
 import { useIsOnline } from '@/hooks/useIsOnline';
 
 const INCLUDED = [
@@ -20,7 +20,7 @@ export default function HomeScreen() {
     online === null ? 'bg-muted/10' : online ? 'bg-primary/10' : 'bg-error/10';
 
   return (
-    <Screen scroll>
+    <Screen scroll edges={TAB_SCREEN_EDGES}>
       <Text className="text-sm font-semibold uppercase tracking-widest text-primary">Starter</Text>
       <Text className="mt-2 text-3xl font-bold text-text">Your app shell is ready.</Text>
       <Text className="mt-3 text-base leading-6 text-muted">

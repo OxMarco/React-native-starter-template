@@ -83,7 +83,12 @@ export function normalizeError(error: unknown): AppError {
   if (error instanceof AppError) return error;
 
   const message = messageOf(error);
-  const status = statusOf(error, message);
+
+  // A structured status is authoritative, so it is read first. Transport
+  // failures are classified before any message parsing, because their messages
+  // routinely carry unrelated numbers (ports, hostnames, byte counts, retry
+  // counts) that a looser status parser would misread as an HTTP status.
+  const status = statusOf(error);
   if (status !== null) return appErrorFromStatus(status, { cause: error });
 
   if (isAbortError(error)) {
@@ -95,6 +100,9 @@ export function normalizeError(error: unknown): AppError {
   if (/network request failed|fetch failed|unable to resolve host|network error/i.test(message)) {
     return createError('network', message || 'Network request failed', true, error);
   }
+
+  const messageStatus = statusFromMessage(message);
+  if (messageStatus !== null) return appErrorFromStatus(messageStatus, { cause: error });
 
   return createError('unknown', message || 'Unexpected error', false, error);
 }
@@ -146,20 +154,40 @@ function messageOf(error: unknown): string {
   return typeof error === 'string' ? error : '';
 }
 
-function statusOf(error: unknown, message: string): number | null {
+function statusOf(error: unknown): number | null {
   if (typeof error === 'object' && error !== null) {
     const direct = Reflect.get(error, 'status');
-    if (typeof direct === 'number') return direct;
+    if (isHttpStatus(direct)) return direct;
 
     const response = Reflect.get(error, 'response');
     if (typeof response === 'object' && response !== null) {
       const nested = Reflect.get(response, 'status');
-      if (typeof nested === 'number') return nested;
+      if (isHttpStatus(nested)) return nested;
     }
   }
 
-  const match = message.match(/(?:^|\D)([1-5]\d{2})(?:\D|$)/);
-  return match ? Number(match[1]) : null;
+  return null;
+}
+
+// Last-resort parsing for errors that lost their structure on the way here
+// (stringified, re-wrapped, or thrown by a library that only formats a
+// message). Deliberately anchored to phrasings that state a status rather than
+// matching any three-digit number: `Request timed out after 500 ms` and
+// `Unable to resolve host api.example.com after 300 attempts` must not be read
+// as HTTP 500 and 300, which previously turned a retryable DNS failure into a
+// non-retryable `unknown`.
+function statusFromMessage(message: string): number | null {
+  const match = message.match(
+    /\b(?:status|code|http|failed with|responded with|returned)\b[^0-9]{0,12}([1-5]\d{2})\b/i
+  );
+  if (match) return Number(match[1]);
+
+  const parenthesized = message.match(/request failed \((\d{3})\)/i);
+  return parenthesized ? Number(parenthesized[1]) : null;
+}
+
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599;
 }
 
 function isAbortError(error: unknown): boolean {

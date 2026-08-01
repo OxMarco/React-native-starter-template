@@ -30,6 +30,44 @@ describe('AppError', () => {
     expect(unexpected.userMessage).not.toContain('secret implementation detail');
   });
 
+  it('classifies transport failures ahead of numbers that appear in their message', () => {
+    // Regression: a bare three-digit scan read the retry count as HTTP 300 and
+    // returned a non-retryable `unknown`, silently disabling retries for DNS
+    // failures. The same scan turned timeouts into `server` errors.
+    expect(
+      normalizeError(new Error('Unable to resolve host api.example.com after 300 attempts'))
+    ).toMatchObject({ kind: 'network', retryable: true });
+    expect(normalizeError(new Error('Request timed out after 500 ms'))).toMatchObject({
+      kind: 'timeout',
+      retryable: true,
+    });
+    expect(
+      normalizeError(new Error('Network request failed contacting 10.0.2.2:8081'))
+    ).toMatchObject({ kind: 'network', retryable: true });
+  });
+
+  it('ignores incidental numbers but still reads a stated status', () => {
+    expect(normalizeError(new Error('Failed to fetch item 404 from list'))).toMatchObject({
+      kind: 'unknown',
+      retryable: false,
+    });
+    expect(normalizeError(new Error('Request failed with status 503'))).toMatchObject({
+      kind: 'server',
+      retryable: true,
+    });
+    expect(normalizeError(new Error('Request failed (404): /items'))).toMatchObject({
+      kind: 'not-found',
+    });
+  });
+
+  it('reads a structured status but rejects values outside the HTTP range', () => {
+    expect(normalizeError({ status: 429 })).toMatchObject({ kind: 'rate-limit' });
+    expect(normalizeError({ response: { status: 500 } })).toMatchObject({ kind: 'server' });
+    expect(normalizeError(Object.assign(new Error('boom'), { status: 99 }))).toMatchObject({
+      kind: 'unknown',
+    });
+  });
+
   it('preserves an existing AppError', () => {
     const original = appErrorFromStatus(429, { retryAfterMs: 5000 });
     expect(normalizeError(original)).toBe(original);

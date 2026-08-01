@@ -117,8 +117,11 @@ function commonProperties(): TelemetryProperties {
 function sendAnalyticsEvent(event: string, properties: TelemetryProperties) {
   safelyInvoke(() =>
     analyticsAdapter.track(event, {
-      ...properties,
+      // Common context first: an event that defines its own `platform` or
+      // `locale` is describing something more specific than the device it was
+      // sent from, and silently overwriting it loses the only interesting part.
       ...commonProperties(),
+      ...properties,
     })
   );
 }

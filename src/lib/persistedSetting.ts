@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { errorReporter } from '@/observability/observability';
+
 export type PersistedSetting<T> = {
   defaultValue: T;
   getCached: () => { readonly value: T } | null;
@@ -59,8 +61,16 @@ export function createPersistedSetting<T>(
       listeners.forEach((listener) => listener(value));
       try {
         await AsyncStorage.setItem(key, codec.encode(value));
-      } catch {
-        // Keep the in-memory preference usable when device storage is unavailable.
+      } catch (error) {
+        // Keep the in-memory preference usable when device storage is
+        // unavailable, but do not stay quiet about it: the setting looks
+        // applied and then silently reverts on the next launch, which is
+        // otherwise near-impossible to diagnose from a bug report. The key is
+        // safe to report; the value may be user data, so it is not included.
+        errorReporter.captureException(error, {
+          context: 'persisted-setting-write',
+          tags: { setting: key },
+        });
       }
     },
   };

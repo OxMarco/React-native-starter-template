@@ -32,7 +32,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
               shouldDehydrateMutation: shouldPersistMutation,
             },
           }}
-          onSuccess={() => resumeOfflineMutations(queryClient)}
+          onSuccess={handleCacheRestoreSuccess}
           onError={handleCacheRestoreError}>
           <QueryLifecycle />
           <ObservabilityProvider>
@@ -42,6 +42,15 @@ export default function AppProviders({ children }: { children: ReactNode }) {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+// Resuming replays real network writes, so it can reject. Returning the bare
+// promise left that rejection unhandled — which, now that unhandled rejections
+// are reported, would surface as an uncontextualised crash report.
+function handleCacheRestoreSuccess() {
+  void resumeOfflineMutations(queryClient).catch((error) => {
+    errorReporter.captureException(error, { context: 'offline-mutation-resume' });
+  });
 }
 
 function handleCacheRestoreError() {

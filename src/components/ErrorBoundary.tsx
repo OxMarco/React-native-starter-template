@@ -27,6 +27,8 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (__DEV__) console.error(`[${context}]`, error, errorInfo.componentStack);
   }
 
+  // Showing the fallback unmounts the children, so clearing the error is enough
+  // to give them a fresh mount — no remount key needed.
   private reset = () => this.setState({ error: null });
 
   render() {

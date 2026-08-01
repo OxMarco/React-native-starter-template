@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import Card from '@/components/Card';
-import Screen from '@/components/Screen';
+import Screen, { TAB_SCREEN_EDGES } from '@/components/Screen';
 import { usePersistedSetting } from '@/hooks/usePersistedSetting';
 import { THEME_OPTIONS } from '@/lib/appTheme';
 import {
@@ -15,7 +15,7 @@ export default function SettingsScreen() {
   const analyticsConsent = usePersistedSetting(analyticsConsentSetting);
 
   return (
-    <Screen scroll>
+    <Screen scroll edges={TAB_SCREEN_EDGES}>
       <Text className="text-3xl font-bold text-text">Settings</Text>
       <Text className="mt-2 text-base leading-6 text-muted">
         This demonstrates a reusable AsyncStorage-backed preference.

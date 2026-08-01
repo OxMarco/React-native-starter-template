@@ -3,10 +3,18 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # The starter ships on master; forks and new apps commonly rename to main.
+    # Listing both keeps post-merge CI running either way.
+    branches: [main, master]
 
 permissions:
   contents: read
+
+# A push that lands while an earlier run is still going makes that run
+# irrelevant — cancel it rather than paying for both.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -15,8 +23,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run doctor
       - run: npm run check
+      # Advisories land without a commit on this side, so a failure here is not
+      # necessarily caused by the change under review. Reported, never blocking.
+      - name: Audit production dependencies
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
