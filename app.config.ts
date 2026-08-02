@@ -74,6 +74,46 @@ if (
   throw new Error('Replace every starter identity placeholder before creating a production build.');
 }
 
+// Observability and store-listing configuration. All optional: with none of it
+// set the SDKs initialise disabled and the update prompt stays silent, so a
+// fresh clone runs before any vendor account exists.
+const sentryDsn = process.env.SENTRY_DSN?.trim();
+const sentryOrganization = process.env.SENTRY_ORG?.trim();
+const sentryProject = process.env.SENTRY_PROJECT?.trim();
+const sentrySendDefaultPii = process.env.SENTRY_SEND_DEFAULT_PII === 'true';
+const posthogApiKey = process.env.POSTHOG_API_KEY?.trim();
+const posthogHost = process.env.POSTHOG_HOST?.trim() || 'https://eu.i.posthog.com';
+const appStoreId = process.env.APP_STORE_ID?.trim();
+const appStoreCountry = process.env.APP_STORE_COUNTRY?.trim() || 'us';
+
+// The Sentry plugin uploads source maps at build time, which needs an org, a
+// project, and SENTRY_AUTH_TOKEN in the build environment. Added only when the
+// org and project are known — including it unconfigured fails prebuild rather
+// than degrading to "no source maps".
+const sentryPlugin: ExpoConfig['plugins'] =
+  sentryOrganization && sentryProject
+    ? [['@sentry/react-native/expo', { organization: sentryOrganization, project: sentryProject }]]
+    : [];
+
+// Unsymbolicated crash reports are close to useless, and a production build is
+// the one place that cannot be re-run locally to find out what happened. Warn
+// rather than throw: a team that has not adopted Sentry yet must still be able
+// to ship.
+if (process.env.EAS_BUILD_PROFILE === 'production') {
+  if (sentryDsn && !(sentryOrganization && sentryProject && process.env.SENTRY_AUTH_TOKEN)) {
+    console.warn(
+      '[build] SENTRY_DSN is set but SENTRY_ORG, SENTRY_PROJECT, or SENTRY_AUTH_TOKEN is missing — ' +
+        'source maps will not upload and crash reports will be unsymbolicated.'
+    );
+  }
+  if (!appStoreId) {
+    console.warn(
+      '[build] APP_STORE_ID is not set — the iOS "update available" prompt cannot look up the ' +
+        'published version and will never appear.'
+    );
+  }
+}
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: appName,
@@ -94,12 +134,28 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   web: {
     bundler: 'metro',
   },
-  plugins: ['expo-status-bar', 'expo-splash-screen'],
+  // expo-store-review ships no config plugin — listing it makes Expo try to
+  // load the module itself as one, which fails config resolution outright.
+  plugins: ['expo-status-bar', 'expo-splash-screen', ...sentryPlugin],
   experiments: {
     tsconfigPaths: true,
   },
   extra: {
     ...config.extra,
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
+    // Non-secret runtime configuration, read back through `src/lib/appConfig.ts`.
+    // Everything here is embedded in the shipped bundle and readable by anyone
+    // who unpacks the binary — a Sentry DSN and a PostHog project token are
+    // write-only public keys, which is why they are safe to publish this way.
+    // A private API key never is.
+    ...(sentryDsn ? { sentryDsn } : {}),
+    sentrySendDefaultPii,
+    ...(posthogApiKey ? { posthogApiKey } : {}),
+    posthogHost,
+    ...(appStoreId ? { appStoreId } : {}),
+    appStoreCountry,
+    // Mirrored into `extra` so the on-device Play Store version lookup can read
+    // it at runtime; `android.package` itself is not exposed to the bundle.
+    androidPackage,
   },
 });

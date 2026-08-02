@@ -59,8 +59,8 @@ export default function SettingsScreen() {
           Usage analytics
         </Text>
         <Text className="mt-2 leading-6 text-muted">
-          No analytics are collected until you opt in. Never include credentials or personal content
-          in analytics events.
+          Anonymous usage data and crash reports are shared by default to help improve the app. Turn
+          this off at any time. Never include credentials or personal content in analytics events.
         </Text>
         <View
           accessibilityLabel="Usage analytics"
@@ -71,10 +71,7 @@ export default function SettingsScreen() {
               key={option.value}
               label={option.label}
               selected={analyticsConsent.value === option.value}
-              focusable={
-                analyticsConsent.value === option.value ||
-                (analyticsConsent.value === 'undecided' && index === 0)
-              }
+              focusable={analyticsConsent.value === option.value}
               divided={index > 0}
               onPress={() => void analyticsConsent.setValue(option.value)}
               onMove={(offset) => {
@@ -87,7 +84,8 @@ export default function SettingsScreen() {
         </View>
         {analyticsConsent.writeError ? (
           <Text accessibilityRole="alert" className="mt-3 leading-6 text-error">
-            Your analytics choice could not be saved. Analytics remains disabled for this session.
+            Your analytics choice could not be saved. It applies for now, but may revert the next
+            time the app starts.
           </Text>
         ) : null}
       </Card>

@@ -11,44 +11,59 @@ describe('observability', () => {
     resetObservabilityConfiguration();
   });
 
-  it('does not send analytics without explicit consent', () => {
+  it('sends launch events on the default without waiting for stored consent', () => {
     const track = jest.fn();
     configureObservability({ analytics: { track } });
-    analytics.setConsent('undecided');
 
+    // No pending state: an event captured before `setConsent` runs is sent on
+    // the documented default rather than held until AsyncStorage answers.
     analytics.track('app_launched', { launch: 'cold' });
-    expect(track).not.toHaveBeenCalled();
 
-    analytics.setConsent('granted');
-    analytics.track('app_launched', { launch: 'cold' });
     expect(track).toHaveBeenCalledWith(
       'app_launched',
       expect.objectContaining({ launch: 'cold', platform: expect.any(String) })
     );
   });
 
-  it('buffers only the consent-hydration window and discards it when consent is absent', () => {
+  it('stops sending as soon as a stored withdrawal resolves', () => {
     const track = jest.fn();
     configureObservability({ analytics: { track } });
 
     analytics.screen('Welcome');
     analytics.setConsent('denied');
-    analytics.setConsent('granted');
+    analytics.screen('Home');
 
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it('flushes the consent-hydration window when stored consent is granted', () => {
-    const track = jest.fn();
-    configureObservability({ analytics: { track } });
-
-    analytics.screen('Welcome');
-    analytics.setConsent('granted');
-
+    // The pre-hydration event is gone from the facade's perspective — it was
+    // already handed to the adapter. Only what comes after the withdrawal is
+    // guaranteed to stop.
+    expect(track).toHaveBeenCalledTimes(1);
     expect(track).toHaveBeenCalledWith(
       'screen_viewed',
       expect.objectContaining({ screen: 'Welcome' })
     );
+  });
+
+  it('disables the adapter itself when consent is withdrawn', () => {
+    const setEnabled = jest.fn();
+    configureObservability({ analytics: { track: jest.fn(), setEnabled } });
+
+    analytics.setConsent('granted');
+    analytics.setConsent('denied');
+
+    expect(setEnabled).toHaveBeenLastCalledWith(false);
+  });
+
+  it('resumes sending when a withdrawal is reversed', () => {
+    const track = jest.fn();
+    configureObservability({ analytics: { track } });
+
+    analytics.setConsent('denied');
+    analytics.screen('Welcome');
+    expect(track).not.toHaveBeenCalled();
+
+    analytics.setConsent('granted');
+    analytics.screen('Home');
+    expect(track).toHaveBeenCalledTimes(1);
   });
 
   it('resets the analytics identity when consent is withdrawn', () => {

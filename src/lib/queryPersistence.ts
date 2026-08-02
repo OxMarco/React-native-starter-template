@@ -16,8 +16,8 @@ type PersistableMutation = {
 };
 
 export const QUERY_CACHE_BUSTER = 'v3';
-export const QUERY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-export const MUTATION_OUTBOX_BUSTER = 'v1';
+const QUERY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const MUTATION_OUTBOX_BUSTER = 'v1';
 export const MUTATION_OUTBOX_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const QUERY_CACHE_KEY = 'starter:query-cache:v2';

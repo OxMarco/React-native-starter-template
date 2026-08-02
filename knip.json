@@ -5,8 +5,10 @@
     "scripts/*.mjs",
     "src/**/__tests__/**/*.ts?(x)",
     "src/lib/apiClient.ts",
+    "src/lib/appIdentityHeaders.ts",
     "src/lib/offlineMutations.ts",
     "src/lib/queryClient.ts",
+    "src/lib/storeReview.ts",
     "src/observability/index.ts"
   ],
   "project": ["**/*.{js,jsx,ts,tsx}", "*.d.ts"],

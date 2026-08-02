@@ -1,0 +1,11 @@
+# Deliberately not `npm run check`. That also runs Knip and exports the web
+# bundle, which is slow enough that people start reaching for --no-verify — and
+# a hook that gets bypassed protects nothing. Dead-code and bundle-budget
+# regressions are cheap to catch one step later, so they stay in CI.
+#
+# Nothing here rewrites files. A hook that formats and re-stages can sweep
+# unstaged edits into a commit the author never reviewed; this reports instead
+# and tells you what to run.
+npm run typecheck
+npm run lint
+npm test

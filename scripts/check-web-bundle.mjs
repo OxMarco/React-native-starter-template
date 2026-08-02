@@ -3,8 +3,18 @@ import { extname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const OUTPUT_DIRECTORY = 'dist';
-const MAX_JAVASCRIPT_BYTES = 2_600_000;
-const MAX_GZIPPED_JAVASCRIPT_BYTES = 650_000;
+// Budgets are ratchets, not targets: they exist to make a size regression a
+// failing build rather than something noticed a release later. Raise one only
+// alongside the change that needs it, and say why.
+//
+// The JavaScript budgets jumped from 2.6 MB / 650 KB when Sentry and PostHog
+// were added — roughly 700 KB raw of vendor SDK. That is a real cost on web,
+// where it is the whole download rather than part of an installed binary. If a
+// product cares more about web weight than about web telemetry, the escape
+// hatch is a `setup.web.ts` that registers no adapters; Metro resolves it for
+// the web target and the facades stay safe no-ops.
+const MAX_JAVASCRIPT_BYTES = 3_520_000;
+const MAX_GZIPPED_JAVASCRIPT_BYTES = 875_000;
 const MAX_CSS_BYTES = 200_000;
 
 const files = walk(OUTPUT_DIRECTORY);

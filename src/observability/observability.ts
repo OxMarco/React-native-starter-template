@@ -1,7 +1,9 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import type { AnalyticsConsent } from './analyticsConsent';
+import { currentAppVersion, currentBuildVersion } from '@/lib/appVersion';
+
+import { type AnalyticsConsent, DEFAULT_ANALYTICS_CONSENT } from './analyticsConsent';
 import type {
   AnalyticsAdapter,
   AnalyticsEventMap,
@@ -23,8 +25,18 @@ const noopErrorReporter: ErrorReporterAdapter = {
 
 let analyticsAdapter: AnalyticsAdapter = noopAnalytics;
 let errorAdapter: ErrorReporterAdapter = noopErrorReporter;
-let analyticsConsent: AnalyticsConsent | 'pending' = 'pending';
-let pendingEvents: { event: string; properties: TelemetryProperties }[] = [];
+
+// Capture starts on the documented default rather than on a 'pending' state
+// that holds events until the stored preference has been read. Launch-time
+// events therefore send immediately instead of waiting on AsyncStorage.
+//
+// The cost is real and deliberate: for the short window between launch and
+// `setConsent`, a returning user who turned reporting off is treated as the
+// default. In practice PostHog persists its own opt-out flag and re-applies it
+// before capturing, so that user is usually still covered — but the guarantee
+// now comes from the SDK, not from this module. Restoring the hard guarantee
+// means reintroducing a pending state here.
+let analyticsConsent: AnalyticsConsent = DEFAULT_ANALYTICS_CONSENT;
 
 export function configureObservability(adapters: {
   analytics?: AnalyticsAdapter;
@@ -37,31 +49,22 @@ export function configureObservability(adapters: {
 export function resetObservabilityConfiguration() {
   analyticsAdapter = noopAnalytics;
   errorAdapter = noopErrorReporter;
-  analyticsConsent = 'pending';
-  pendingEvents = [];
+  analyticsConsent = DEFAULT_ANALYTICS_CONSENT;
 }
 
 export const analytics = {
   setConsent(consent: AnalyticsConsent) {
     const wasGranted = analyticsConsent === 'granted';
-    const wasPending = analyticsConsent === 'pending';
     analyticsConsent = consent;
-    if (wasPending && consent === 'granted') {
-      pendingEvents.forEach(({ event, properties }) => sendAnalyticsEvent(event, properties));
-    }
-    pendingEvents = [];
+    safelyInvoke(() => analyticsAdapter.setEnabled?.(consent === 'granted'));
     if (wasGranted && consent !== 'granted') safelyInvoke(() => analyticsAdapter.reset?.());
   },
   track<EventName extends keyof AnalyticsEventMap>(
     event: EventName,
     properties: AnalyticsEventMap[EventName]
   ) {
-    const safeProperties = sanitizeProperties(properties as TelemetryProperties);
-    if (analyticsConsent === 'pending') {
-      pendingEvents = [...pendingEvents.slice(-19), { event, properties: safeProperties }];
-      return;
-    }
-    if (analyticsConsent === 'granted') sendAnalyticsEvent(event, safeProperties);
+    if (analyticsConsent !== 'granted') return;
+    sendAnalyticsEvent(event, sanitizeProperties(properties as TelemetryProperties));
   },
   screen(screen: string) {
     analytics.track('screen_viewed', { screen });
@@ -106,8 +109,8 @@ export function sanitizeProperties(properties: TelemetryProperties): TelemetryPr
 function commonProperties(): TelemetryProperties {
   return {
     platform: Platform.OS,
-    app_version: Constants.expoConfig?.version ?? 'unknown',
-    build_version: nativeBuildVersion(),
+    app_version: currentAppVersion(),
+    build_version: currentBuildVersion(),
     locale: currentLocale(),
     environment: __DEV__ ? 'development' : 'production',
     session_id: Constants.sessionId,
@@ -124,14 +127,6 @@ function sendAnalyticsEvent(event: string, properties: TelemetryProperties) {
       ...properties,
     })
   );
-}
-
-function nativeBuildVersion(): string {
-  if (Platform.OS === 'ios') return Constants.platform?.ios?.buildNumber ?? 'unknown';
-  if (Platform.OS === 'android') {
-    return String(Constants.platform?.android?.versionCode ?? 'unknown');
-  }
-  return 'web';
 }
 
 function currentLocale(): string {

@@ -14,6 +14,13 @@ jest.mock('@react-navigation/bottom-tabs', () => ({
   }),
 }));
 
+// Needs a QueryClientProvider of its own and is covered by its own test. This
+// keeps the tab-bar assertions below from depending on the server-state stack.
+jest.mock('@/components/StoreUpdatePrompt', () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
 jest.mock('@/providers/ThemeProvider', () => ({
   useAppTheme: () => ({
     theme: {
