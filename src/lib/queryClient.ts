@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import {
   focusManager,
@@ -7,12 +6,12 @@ import {
   QueryCache,
   QueryClient,
 } from '@tanstack/react-query';
-import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 import { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { normalizeError, shouldReportError } from './appError';
 import { assertOfflineMutationVariables } from './offlineMutations';
+import { queryPersister } from './queryPersistence';
 import { retryDelay, shouldRetryQuery } from './retryPolicy';
 import { analytics, errorReporter } from '@/observability/observability';
 
@@ -69,18 +68,6 @@ export const queryClient = new QueryClient({
       networkMode: 'online',
       retry: false,
     },
-  },
-});
-
-export const queryPersister = createAsyncStoragePersister({
-  storage: AsyncStorage,
-  key: 'starter:query-cache:v1',
-  throttleTime: 1000,
-  retry: ({ error }) => {
-    const normalized = normalizeError(error);
-    analytics.track('cache_persist_failed', { kind: normalized.kind });
-    errorReporter.captureException(error, { context: 'query-cache-persist' });
-    return undefined;
   },
 });
 

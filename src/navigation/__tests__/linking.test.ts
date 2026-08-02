@@ -1,8 +1,11 @@
 import { Linking } from 'react-native';
 
-import { markOnboardingComplete, resetOnboarding } from '@/lib/onboarding';
-
-import { linking, replayPendingDeepLink, resetPendingDeepLink } from '../linking';
+import {
+  linking,
+  replayPendingDeepLink,
+  resetPendingDeepLink,
+  setOnboardingGateComplete,
+} from '../linking';
 
 jest.mock('expo-constants', () => ({
   __esModule: true,
@@ -17,10 +20,9 @@ const flushAsync = () => new Promise((resolve) => setImmediate(resolve));
 
 let urlListener: ((event: { url: string }) => void) | null = null;
 
-beforeEach(async () => {
+beforeEach(() => {
   jest.restoreAllMocks();
   resetPendingDeepLink();
-  await resetOnboarding();
   urlListener = null;
 
   jest.spyOn(Linking, 'addEventListener').mockImplementation((type, listener) => {
@@ -33,7 +35,7 @@ beforeEach(async () => {
 
 describe('deep link onboarding gate', () => {
   it('delivers a cold-start link once onboarding is complete', async () => {
-    await markOnboardingComplete();
+    setOnboardingGateComplete(true);
     jest.spyOn(Linking, 'getInitialURL').mockResolvedValue(DEEP_LINK);
 
     await expect(linking.getInitialURL?.()).resolves.toBe(DEEP_LINK);
@@ -88,7 +90,7 @@ describe('deep link onboarding gate', () => {
   });
 
   it('passes a warm link straight through after onboarding', async () => {
-    await markOnboardingComplete();
+    setOnboardingGateComplete(true);
     const listener = jest.fn();
     linking.subscribe?.(listener);
 
@@ -100,5 +102,24 @@ describe('deep link onboarding gate', () => {
 
   it('derives its prefixes from the configured scheme', () => {
     expect(linking.prefixes).toEqual(['rnstarter://']);
+  });
+
+  it('parks a web path instead of constructing navigation state before onboarding', () => {
+    expect(linking.getStateFromPath?.('/settings', linking.config)).toBeUndefined();
+
+    const handleWebPath = jest.fn();
+    replayPendingDeepLink('Welcome', handleWebPath);
+    expect(handleWebPath).not.toHaveBeenCalled();
+
+    replayPendingDeepLink('Main', handleWebPath);
+    expect(handleWebPath).toHaveBeenCalledWith('/settings');
+  });
+
+  it('constructs web navigation state after onboarding', () => {
+    setOnboardingGateComplete(true);
+
+    expect(linking.getStateFromPath?.('/settings', linking.config)).toMatchObject({
+      routes: [{ name: 'Main', state: { routes: [{ name: 'Settings' }] } }],
+    });
   });
 });

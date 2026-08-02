@@ -16,7 +16,8 @@ type ThemeContextValue = {
   resolvedScheme: ResolvedScheme;
   theme: Theme;
   hydrated: boolean;
-  setPreference: (preference: ThemePreference) => Promise<void>;
+  saveError: unknown | null;
+  setPreference: (preference: ThemePreference) => Promise<boolean>;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -46,9 +47,16 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
       resolvedScheme,
       theme: themes[resolvedScheme],
       hydrated: preference.hydrated,
+      saveError: preference.writeError,
       setPreference: preference.setValue,
     }),
-    [preference.hydrated, preference.setValue, preference.value, resolvedScheme]
+    [
+      preference.hydrated,
+      preference.setValue,
+      preference.value,
+      preference.writeError,
+      resolvedScheme,
+    ]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

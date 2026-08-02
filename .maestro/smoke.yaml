@@ -1,0 +1,10 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+- assertVisible: Get started
+- tapOn: Get started
+- assertVisible: Your app shell is ready.
+- tapOn: Settings
+- assertVisible: Appearance
+- assertVisible: Usage analytics

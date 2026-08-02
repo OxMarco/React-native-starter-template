@@ -4,21 +4,63 @@ export type JsonRequestOptions = RequestInit & {
   timeoutMs?: number;
 };
 
+export type JsonDecoder<T> = (value: unknown) => T;
+
+type DecodedJsonRequestOptions<T> = JsonRequestOptions & {
+  decode: JsonDecoder<T>;
+  expectEmpty?: false;
+};
+
+type EmptyRequestOptions = JsonRequestOptions & {
+  decode?: never;
+  expectEmpty: true;
+};
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-export async function requestJson<T>(
+export function requestJson<T>(url: string, options: DecodedJsonRequestOptions<T>): Promise<T>;
+export function requestJson(url: string, options: EmptyRequestOptions): Promise<void>;
+export function requestJson(
   url: string,
-  { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, ...init }: JsonRequestOptions = {}
-): Promise<T> {
-  const controller = new AbortController();
-  let timedOut = false;
+  options?: JsonRequestOptions & { decode?: never; expectEmpty?: false }
+): Promise<unknown>;
+export async function requestJson(
+  url: string,
+  {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal: externalSignal,
+    decode,
+    expectEmpty = false,
+    ...init
+  }: JsonRequestOptions & {
+    decode?: JsonDecoder<unknown>;
+    expectEmpty?: boolean;
+  } = {}
+): Promise<unknown | void> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new AppError({
+      kind: 'validation',
+      code: 'invalid-timeout',
+      message: 'timeoutMs must be a positive finite number',
+      userMessage: 'The request could not be started.',
+      retryable: false,
+    });
+  }
 
-  const abortFromCaller = () => controller.abort();
+  const controller = new AbortController();
+  let abortSource: 'caller' | 'timeout' | null = null;
+
+  const abortFromCaller = () => {
+    if (abortSource) return;
+    abortSource = 'caller';
+    controller.abort();
+  };
   if (externalSignal?.aborted) abortFromCaller();
   else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
 
   const timeout = setTimeout(() => {
-    timedOut = true;
+    if (abortSource) return;
+    abortSource = 'timeout';
     controller.abort();
   }, timeoutMs);
 
@@ -33,11 +75,32 @@ export async function requestJson<T>(
       });
     }
 
-    if (response.status === 204) return undefined as T;
+    if (response.status === 204 || response.status === 205) {
+      if (expectEmpty) return undefined;
+      throw invalidResponse('unexpected-empty-response', 'The server returned an empty response.', {
+        requestId,
+      });
+    }
+
+    if (expectEmpty) return undefined;
 
     try {
-      return (await response.json()) as T;
+      const body: unknown = await response.json();
+      if (!decode) return body;
+      try {
+        return decode(body);
+      } catch (error) {
+        throw invalidResponse(
+          'response-validation-failed',
+          'The response did not match its schema.',
+          {
+            requestId,
+            cause: error,
+          }
+        );
+      }
     } catch (error) {
+      if (error instanceof AppError) throw error;
       throw new AppError({
         kind: 'server',
         code: 'invalid-json',
@@ -49,7 +112,7 @@ export async function requestJson<T>(
       });
     }
   } catch (error) {
-    if (timedOut) {
+    if (abortSource === 'timeout') {
       throw new AppError({
         kind: 'timeout',
         code: 'request-timeout',
@@ -64,4 +127,19 @@ export async function requestJson<T>(
     clearTimeout(timeout);
     externalSignal?.removeEventListener('abort', abortFromCaller);
   }
+}
+
+function invalidResponse(
+  code: string,
+  message: string,
+  context: { requestId?: string; cause?: unknown }
+) {
+  return new AppError({
+    kind: 'server',
+    code,
+    message,
+    userMessage: 'The service returned an invalid response. Try again shortly.',
+    retryable: false,
+    ...context,
+  });
 }

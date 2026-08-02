@@ -6,6 +6,7 @@ export function usePersistedSetting<T>(setting: PersistedSetting<T>) {
   const cached = setting.getCached();
   const [value, setValueState] = useState(cached ? cached.value : setting.defaultValue);
   const [hydrated, setHydrated] = useState(cached !== null);
+  const [writeError, setWriteError] = useState<unknown | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,10 +38,19 @@ export function usePersistedSetting<T>(setting: PersistedSetting<T>) {
     async (next: T) => {
       setValueState(next);
       setHydrated(true);
-      await setting.set(next);
+      setWriteError(null);
+      try {
+        await setting.set(next);
+        return true;
+      } catch (error) {
+        const committed = setting.getCached();
+        if (committed) setValueState(committed.value);
+        setWriteError(error);
+        return false;
+      }
     },
     [setting]
   );
 
-  return { value, hydrated, setValue };
+  return { value, hydrated, writeError, setValue };
 }

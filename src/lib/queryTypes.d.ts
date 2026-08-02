@@ -1,5 +1,3 @@
-import type { AppError } from './appError';
-
 type AppQueryMeta = {
   [key: string]: unknown;
   operationName?: string;
@@ -16,7 +14,10 @@ type AppMutationMeta = {
 
 declare module '@tanstack/react-query' {
   interface Register {
-    defaultError: AppError;
+    // Query functions are extension points and may throw anything. Consumers
+    // must normalize at a UI/reporting boundary instead of being promised an
+    // AppError that the type system cannot enforce.
+    defaultError: unknown;
     queryMeta: AppQueryMeta;
     mutationMeta: AppMutationMeta;
   }

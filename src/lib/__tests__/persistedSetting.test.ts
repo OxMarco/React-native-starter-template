@@ -66,4 +66,38 @@ describe('createPersistedSetting', () => {
     await expect(Promise.all([first, second])).resolves.toEqual(['auto', 'auto']);
     expect(getItem).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects failed writes without publishing an uncommitted value', async () => {
+    const setting = createPersistedSetting('test:failed-write', 'granted', {
+      decode: (raw) => raw ?? 'granted',
+      encode: String,
+    });
+    await setting.read();
+    const listener = jest.fn();
+    setting.subscribe(listener);
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(setting.set('denied')).rejects.toThrow('disk full');
+
+    expect(setting.getCached()).toEqual({ value: 'granted' });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('keeps fail-closed values live when their durable write fails', async () => {
+    const setting = createPersistedSetting(
+      'test:consent',
+      'granted',
+      { decode: (raw) => raw ?? 'granted', encode: String },
+      { optimisticWhen: (value) => value === 'denied' }
+    );
+    await setting.read();
+    const listener = jest.fn();
+    setting.subscribe(listener);
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+    await expect(setting.set('denied')).rejects.toThrow('disk full');
+
+    expect(setting.getCached()).toEqual({ value: 'denied' });
+    expect(listener).toHaveBeenCalledWith('denied');
+  });
 });

@@ -13,7 +13,10 @@ export type OfflineMutationDefinition<TData, TVariables extends IdempotentMutati
   operationName: string;
   mutationFn: MutationFunction<TData, TVariables>;
   retry?: number;
+  scopeId?: string;
 };
+
+const DEFAULT_OUTBOX_SCOPE = 'offline-outbox';
 
 export function registerOfflineMutation<TData, TVariables extends IdempotentMutationVariables>(
   queryClient: QueryClient,
@@ -32,6 +35,7 @@ export function registerOfflineMutation<TData, TVariables extends IdempotentMuta
     retry: definition.retry ?? false,
     retryDelay,
     gcTime: 7 * 24 * 60 * 60 * 1000,
+    scope: { id: definition.scopeId ?? DEFAULT_OUTBOX_SCOPE },
     meta: {
       offline: true,
       persist: true,

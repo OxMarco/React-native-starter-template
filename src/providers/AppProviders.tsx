@@ -3,11 +3,11 @@ import type { ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { queryClient, QueryLifecycle, queryPersister } from '@/lib/queryClient';
+import { queryClient, QueryLifecycle } from '@/lib/queryClient';
 import { resumeOfflineMutations } from '@/lib/offlineMutations';
 import {
   QUERY_CACHE_BUSTER,
-  QUERY_CACHE_MAX_AGE_MS,
+  queryPersister,
   shouldPersistMutation,
   shouldPersistQuery,
 } from '@/lib/queryPersistence';
@@ -26,7 +26,6 @@ export default function AppProviders({ children }: { children: ReactNode }) {
           persistOptions={{
             persister: queryPersister,
             buster: QUERY_CACHE_BUSTER,
-            maxAge: QUERY_CACHE_MAX_AGE_MS,
             dehydrateOptions: {
               shouldDehydrateQuery: shouldPersistQuery,
               shouldDehydrateMutation: shouldPersistMutation,

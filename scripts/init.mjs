@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
@@ -48,7 +48,11 @@ async function ask(question, fallback, validator) {
 
 try {
   if (existsSync('.env.local')) {
-    const replace = (await rl.question('.env.local already exists. Replace it? (y/N): '))
+    const replace = (
+      await rl.question(
+        '.env.local already exists. Update app identity and preserve other values? (y/N): '
+      )
+    )
       .trim()
       .toLowerCase();
     if (replace !== 'y' && replace !== 'yes') {
@@ -89,19 +93,17 @@ async function initialize() {
     ANDROID_PACKAGE: androidPackage,
   };
 
-  const env = [
-    ...Object.entries(identity).map(([key, value]) => `${key}=${JSON.stringify(value)}`),
-    '',
-    '# Add this after running `npx eas-cli init`.',
-    '# EAS_PROJECT_ID="00000000-0000-0000-0000-000000000000"',
-    '',
-  ].join('\n');
-
-  writeFileSync('.env.local', env);
+  const existingEnv = existsSync('.env.local') ? readFileSync('.env.local', 'utf8') : '';
+  const env = updateEnvironment(existingEnv, identity);
 
   const packageJson = readJson('package.json');
   packageJson.name = slug;
-  writeJson('package.json', packageJson);
+
+  const packageLock = existsSync('package-lock.json') ? readJson('package-lock.json') : null;
+  if (packageLock) {
+    packageLock.name = slug;
+    if (packageLock.packages?.['']) packageLock.packages[''].name = slug;
+  }
 
   // .env.local is gitignored and EAS Build uploads the git-tracked project, so
   // the same identity has to live somewhere EAS can see it. eas.json is
@@ -109,6 +111,13 @@ async function initialize() {
   // both here is what keeps `npm run init` followed by a cloud build working.
   const easJson = readJson('eas.json');
   easJson.build = { ...easJson.build, base: { ...easJson.build?.base, env: identity } };
+
+  // Every target is fully prepared before the first rename. Each rename is
+  // atomic on the local filesystem, so interruption cannot leave a truncated
+  // JSON or environment file behind.
+  writeFileAtomic('.env.local', env);
+  writeJson('package.json', packageJson);
+  if (packageLock) writeJson('package-lock.json', packageLock);
   writeJson('eas.json', easJson);
 
   console.log(`
@@ -116,7 +125,7 @@ Starter initialized.
 
   .env.local   local Expo CLI builds
   eas.json     the same identity for EAS cloud builds
-  package.json renamed to "${slug}"
+  package.json${packageLock ? ' and package-lock.json' : ''} renamed to "${slug}"
 
 Next: npm install, then npm start.`);
 }
@@ -126,5 +135,47 @@ function readJson(path) {
 }
 
 function writeJson(path, value) {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function updateEnvironment(existing, identity) {
+  const identityKeys = new Set(Object.keys(identity));
+  const preserved = existing
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=/);
+      return !match || !identityKeys.has(match[1]);
+    })
+    .join('\n')
+    .trim();
+  const identityLines = Object.entries(identity).map(
+    ([key, value]) => `${key}=${JSON.stringify(value)}`
+  );
+  const projectIdHint = existing.includes('EAS_PROJECT_ID')
+    ? []
+    : [
+        '# Add this after running `eas init`.',
+        '# EAS_PROJECT_ID="00000000-0000-0000-0000-000000000000"',
+      ];
+
+  return [
+    ...identityLines,
+    '',
+    ...projectIdHint,
+    ...(projectIdHint.length ? [''] : []),
+    preserved,
+    '',
+  ]
+    .filter((line, index, lines) => line !== '' || lines[index - 1] !== '')
+    .join('\n');
+}
+
+function writeFileAtomic(path, contents) {
+  const temporaryPath = `${path}.starter-init-${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryPath, contents, { flag: 'wx' });
+    renameSync(temporaryPath, path);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
 }

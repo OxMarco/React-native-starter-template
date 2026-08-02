@@ -23,6 +23,8 @@ export default function PrimaryButton({
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled: unavailable, busy: loading }}
+      aria-busy={loading}
+      aria-disabled={unavailable}
       disabled={unavailable}
       onPress={onPress}
       className={`min-h-12 items-center justify-center rounded-xl bg-primary px-5 ${

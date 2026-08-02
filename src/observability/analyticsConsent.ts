@@ -25,5 +25,6 @@ const codec: PersistedSettingCodec<AnalyticsConsent> = {
 export const analyticsConsentSetting = createPersistedSetting(
   'starter:analytics-consent:v1',
   DEFAULT_ANALYTICS_CONSENT,
-  codec
+  codec,
+  { optimisticWhen: (value) => value === 'denied' }
 );

@@ -38,9 +38,10 @@ export default function RootTabs() {
         headerShown: false,
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.muted,
+        tabBarAccessibilityLabel: route.name,
         tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
         tabBarIcon: ({ color }) => (
-          <Text accessible={false} style={{ color, fontSize: 18 }}>
+          <Text accessible={false} aria-hidden style={{ color, fontSize: 18 }}>
             {route.name === 'Home' ? '●' : '◆'}
           </Text>
         ),

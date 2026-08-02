@@ -87,4 +87,19 @@ describe('usePersistedSetting', () => {
 
     expect(handle.current?.value).toBe(seen);
   });
+
+  it('exposes write failures and restores the last committed value', async () => {
+    const setting = createPersistedSetting('k', 'default', codec);
+    const { handle } = await renderSetting(setting);
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk full'));
+
+    let saved: boolean | undefined;
+    await act(async () => {
+      saved = await handle.current?.setValue('next');
+    });
+
+    expect(saved).toBe(false);
+    expect(handle.current?.value).toBe('default');
+    expect(handle.current?.writeError).toEqual(expect.objectContaining({ message: 'disk full' }));
+  });
 });

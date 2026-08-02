@@ -1,6 +1,7 @@
 import {
   DarkTheme,
   DefaultTheme,
+  getStateFromPath,
   NavigationContainer,
   type Theme as NavigationTheme,
   useNavigationContainerRef,
@@ -12,11 +13,11 @@ import { StatusBar } from 'expo-status-bar';
 
 import StartupScreen from '@/components/StartupScreen';
 import { isOnboardingComplete } from '@/lib/onboarding';
-import { analytics } from '@/observability/observability';
+import { analytics, errorReporter } from '@/observability/observability';
 import { useAppTheme } from '@/providers/ThemeProvider';
 import WelcomeScreen from '@/screens/WelcomeScreen';
 
-import { linking, replayPendingDeepLink } from './linking';
+import { linking, replayPendingDeepLink, setOnboardingGateComplete } from './linking';
 import RootTabs from './RootTabs';
 
 export type RootStackParamList = {
@@ -35,7 +36,7 @@ const STARTUP_TIMEOUT_MS = 10_000;
 
 export default function RootNavigator() {
   const { hydrated, resolvedScheme, theme } = useAppTheme();
-  const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
+  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const navigationRef = useNavigationContainerRef<RootStackParamList>();
   const currentRouteName = useRef<string | undefined>(undefined);
@@ -44,10 +45,17 @@ export default function RootNavigator() {
     let cancelled = false;
     isOnboardingComplete()
       .then((complete) => {
-        if (!cancelled) setInitialRoute(complete ? 'Main' : 'Welcome');
+        if (!cancelled) {
+          setOnboardingGateComplete(complete);
+          setOnboardingComplete(complete);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setInitialRoute('Welcome');
+      .catch((error) => {
+        errorReporter.captureException(error, { context: 'startup-onboarding-read' });
+        if (!cancelled) {
+          setOnboardingGateComplete(false);
+          setOnboardingComplete(false);
+        }
       });
 
     return () => {
@@ -56,13 +64,13 @@ export default function RootNavigator() {
   }, []);
 
   useEffect(() => {
-    if (initialRoute && hydrated) return;
+    if (onboardingComplete !== null && hydrated) return;
 
     const timeout = setTimeout(() => setTimedOut(true), STARTUP_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [initialRoute, hydrated]);
+  }, [onboardingComplete, hydrated]);
 
-  const ready = (hydrated && initialRoute !== null) || timedOut;
+  const ready = (hydrated && onboardingComplete !== null) || timedOut;
 
   // Hand off from the native splash only once something is ready to render, so
   // startup never shows a blank frame between the two.
@@ -99,8 +107,21 @@ export default function RootNavigator() {
   }, [navigationRef]);
 
   const handleStateChange = useCallback(() => {
-    replayPendingDeepLink(trackCurrentRoute());
-  }, [trackCurrentRoute]);
+    replayPendingDeepLink(trackCurrentRoute(), (path) => {
+      const state = getStateFromPath(path, linking.config);
+      if (state) navigationRef.resetRoot(state);
+    });
+  }, [navigationRef, trackCurrentRoute]);
+
+  // A timed-out storage read starts fail-closed on Welcome. If it later proves
+  // that onboarding was already complete, reconcile the mounted navigator;
+  // initialRouteName is ignored after the first mount.
+  useEffect(() => {
+    if (!timedOut || onboardingComplete !== true || !navigationRef.isReady()) return;
+    if (navigationRef.getRootState().routes[0]?.name === 'Welcome') {
+      navigationRef.resetRoot({ index: 0, routes: [{ name: 'Main' }] });
+    }
+  }, [navigationRef, onboardingComplete, timedOut]);
 
   if (!ready) return <StartupScreen />;
 
@@ -114,7 +135,7 @@ export default function RootNavigator() {
       onStateChange={handleStateChange}>
       <StatusBar style={resolvedScheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
-        initialRouteName={initialRoute ?? 'Welcome'}
+        initialRouteName={onboardingComplete === true ? 'Main' : 'Welcome'}
         screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Welcome" component={WelcomeScreen} />
         <Stack.Screen name="Main" component={RootTabs} />

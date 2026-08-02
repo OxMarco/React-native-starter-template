@@ -1,6 +1,6 @@
 const plugin = require('tailwindcss/plugin');
 
-const { themes } = require('./src/lib/theme');
+const themes = require('./src/lib/theme.json');
 
 function toChannels(hex) {
   const r = parseInt(hex.slice(1, 3), 16);

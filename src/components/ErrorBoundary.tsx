@@ -36,7 +36,12 @@ export default class ErrorBoundary extends Component<Props, State> {
 
     return (
       <View className="flex-1 items-center justify-center bg-background p-6">
-        <Text className="text-center text-2xl font-bold text-text">Something went wrong</Text>
+        <Text
+          accessibilityRole="header"
+          aria-level={1}
+          className="text-center text-2xl font-bold text-text">
+          Something went wrong
+        </Text>
         <Text className="mt-3 text-center text-base leading-6 text-muted">
           {friendlyErrorMessage(this.state.error)}
         </Text>

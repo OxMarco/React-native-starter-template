@@ -27,8 +27,53 @@ describe('offline mutations', () => {
       mutationFn,
       networkMode: 'online',
       retry: false,
+      scope: { id: 'offline-outbox' },
       meta: { offline: true, persist: true, operationName: 'create_item' },
     });
+  });
+
+  it('serializes queued writes in submission order', async () => {
+    const client = new QueryClient();
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const mutationKey = ['items', 'ordered'] as const;
+    registerOfflineMutation(client, {
+      mutationKey,
+      operationName: 'ordered_item_update',
+      mutationFn: async (variables: { idempotencyKey: string; position: number }) => {
+        events.push(`${variables.position}:start`);
+        if (variables.position === 1) await firstGate;
+        events.push(`${variables.position}:end`);
+        return variables.position;
+      },
+    });
+
+    onlineManager.setOnline(false);
+    const first = client
+      .getMutationCache()
+      .build(client, client.defaultMutationOptions({ mutationKey }));
+    const second = client
+      .getMutationCache()
+      .build(client, client.defaultMutationOptions({ mutationKey }));
+    const firstExecution = first.execute({ idempotencyKey: 'ordered-1', position: 1 });
+    const secondExecution = second.execute({ idempotencyKey: 'ordered-2', position: 2 });
+    await Promise.resolve();
+
+    onlineManager.setOnline(true);
+    const resumed = client.resumePausedMutations();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(events).toEqual(['1:start']);
+
+    releaseFirst();
+    await resumed;
+    await Promise.all([firstExecution, secondExecution]);
+    expect(events).toEqual(['1:start', '1:end', '2:start', '2:end']);
+    first.destroy();
+    second.destroy();
+    client.clear();
   });
 
   it('adds an idempotency key to variables', () => {

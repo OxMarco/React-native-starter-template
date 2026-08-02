@@ -46,7 +46,7 @@ export class AppError extends Error {
   readonly originalCause?: unknown;
 
   constructor(options: AppErrorOptions) {
-    super(options.message);
+    super(options.message, { cause: options.cause });
     this.name = 'AppError';
     this.kind = options.kind;
     this.userMessage = options.userMessage;

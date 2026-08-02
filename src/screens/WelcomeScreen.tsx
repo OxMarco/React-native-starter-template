@@ -8,6 +8,7 @@ import Screen from '@/components/Screen';
 import { friendlyErrorMessage } from '@/lib/errors';
 import { markOnboardingComplete } from '@/lib/onboarding';
 import type { RootStackParamList } from '@/navigation/RootNavigator';
+import { setOnboardingGateComplete } from '@/navigation/linking';
 import { analytics } from '@/observability/observability';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Welcome'>;
@@ -21,6 +22,7 @@ export default function WelcomeScreen({ navigation }: Props) {
     setSaveError(null);
     try {
       await markOnboardingComplete();
+      setOnboardingGateComplete(true);
       analytics.track('onboarding_completed', { source: 'welcome' });
       navigation.replace('Main');
     } catch (error) {
@@ -37,7 +39,10 @@ export default function WelcomeScreen({ navigation }: Props) {
           <Text className="text-sm font-semibold uppercase tracking-widest text-primary">
             React Native starter
           </Text>
-          <Text className="mt-3 text-4xl font-bold leading-tight text-text">
+          <Text
+            accessibilityRole="header"
+            aria-level={1}
+            className="mt-3 text-4xl font-bold leading-tight text-text">
             Start with the foundation already in place.
           </Text>
           <Text className="mt-4 text-lg leading-7 text-muted">
@@ -47,7 +52,12 @@ export default function WelcomeScreen({ navigation }: Props) {
         </View>
 
         <Card className="mb-4">
-          <Text className="text-lg font-semibold text-text">A deliberately small baseline</Text>
+          <Text
+            accessibilityRole="header"
+            aria-level={2}
+            className="text-lg font-semibold text-text">
+            A deliberately small baseline
+          </Text>
           <Text className="mt-2 leading-6 text-muted">
             Add only the native capabilities your app needs. This starter does not request device
             permissions or depend on a backend.

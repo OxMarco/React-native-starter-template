@@ -5,17 +5,17 @@ keeps the reusable application foundation and leaves product-specific native cap
 
 ## Included
 
-- Expo SDK 56, React Native 0.85, React 19, and strict TypeScript
+- Expo SDK 57, React Native 0.86, React 19, and strict TypeScript
 - Typed native-stack and bottom-tab navigation, with deep links gated on onboarding
 - NativeWind with persistent system, light, and dark themes
 - Splash-screen handoff with a startup timeout, so a wedged read cannot block launch
-- TanStack Query with opt-in AsyncStorage persistence and resumable offline mutations
+- TanStack Query with separate read-cache and durable, ordered offline-mutation persistence
 - NetInfo lifecycle integration and an app-wide confirmed-offline banner
 - Typed operational errors, request timeouts, and transient-only retry policy
 - Consent-gated typed analytics and vendor-neutral error-reporting adapters
 - Global JS error and unhandled-rejection capture, including in release builds
 - Reusable persisted settings, screen layout, buttons, cards, and error boundaries
-- One-step checks for TypeScript, Jest, ESLint, Prettier, and Knip
+- Enforced coverage and web-bundle budgets alongside TypeScript, Jest, ESLint, Prettier, and Knip
 - GitHub Actions CI and environment-driven Expo/EAS identity
 - iOS, Android, and web entry points from the same project
 
@@ -39,9 +39,12 @@ npm install
 npm start
 ```
 
+Use Node 22.13 or newer; `.nvmrc` pins the current Node 24 toolchain used by CI.
+
 `npm run init` prompts for the display name, Expo slug, deep-link scheme, and native application
-identifiers, validating each against the format its platform actually accepts. It then writes them
-to three places:
+identifiers, validating each against the format its platform actually accepts. Writes use temporary
+files plus atomic renames, and an existing `.env.local` keeps unrelated values such as API URLs and
+the EAS project id. Identity is written to three places:
 
 - `.env.local` — gitignored, read by the Expo CLI for local builds
 - `eas.json` (`build.base.env`) — committed, read by EAS for cloud builds
@@ -57,13 +60,17 @@ Before a production build:
 
 1. Replace the placeholder identifiers if you did not run the initializer.
 2. Add app icon, adaptive icon, splash, and favicon assets to `app.config.ts`.
-3. Run `npx eas-cli init` for a new EAS project and add its project id to `.env.local`.
+3. Run `npx --yes eas-cli@21.4.0 init` for a new EAS project and add its project id to
+   `.env.local` as `EAS_PROJECT_ID`. EAS Build supplies `EAS_BUILD_PROJECT_ID` automatically.
 4. Configure new signing credentials and store records for the new application.
 5. Choose and add analytics or crash reporting only if the product needs them.
 6. Review privacy manifests, permissions, and store disclosures after adding native modules.
 
-Production EAS builds fail fast while either native identifier starts with `com.example.`. The app
-version comes from `package.json`; EAS owns the build number (`appVersionSource: remote`).
+Every EAS build fails fast when any of the five identity variables is absent. Production builds
+also reject every starter placeholder, including the app name, slug, and scheme—not just the native
+identifiers. The app version comes from `package.json`; EAS owns the build number
+(`appVersionSource: remote`). Development, preview, and production profiles explicitly select their
+matching EAS environment, and the pinned CLI version in `eas.json` prevents build-tool drift.
 
 ## Commands
 
@@ -72,13 +79,19 @@ npm start                  # Start Expo
 npm run ios                # Open the iOS target
 npm run android            # Open the Android target
 npm run web                # Open the web target
-npm run check              # Typecheck, test, lint, format-check, and find dead code
+npm run export:web         # Produce the static Metro web export in dist/
+npm run check:web-bundle   # Export web and enforce JavaScript/CSS size budgets
+npm run check              # Coverage, types, lint/format, dead code, and web bundle budget
 npm run test:coverage      # Test with a coverage report over all of src/
 npm run format             # Apply ESLint and Prettier fixes
 npm run doctor             # Validate Expo dependencies and configuration
 npm run build:preview      # Internal EAS builds
 npm run build:production   # Store-ready EAS builds
 ```
+
+The smoke flow in `.maestro/smoke.yaml` clears app state, completes onboarding, and opens Settings.
+Run it against an installed build with `APP_ID=com.acme.app maestro test .maestro/smoke.yaml`.
+Dependabot covers npm and GitHub Actions updates; CI actions are pinned to commit SHAs.
 
 ## Structure
 
@@ -107,7 +120,9 @@ Deep links are gated on onboarding. React Navigation builds its initial navigati
 from a cold-start URL, so on a fresh install a link would otherwise land on its target and skip the
 Welcome screen entirely—along with anything that screen is responsible for, such as accepting
 terms. Any URL arriving before onboarding completes is parked and replayed once the navigator
-leaves the onboarding routes. Add a route to `ONBOARDING_ROUTES` when you add an onboarding step.
+leaves the onboarding routes. The gate covers native cold starts, warm links, and web paths (where
+React Navigation reads `window.location` directly). Add a route to `ONBOARDING_ROUTES` when you add
+an onboarding step.
 
 Startup waits on two AsyncStorage reads (theme preference and the onboarding flag) behind the
 native splash screen. Neither is guaranteed to settle, so the wait is capped at ten seconds and the
@@ -137,7 +152,11 @@ typed `AppError` values:
 ```ts
 const result = useQuery({
   queryKey: ['items'],
-  queryFn: ({ signal }) => requestJson<Item[]>('https://api.example.com/items', { signal }),
+  queryFn: ({ signal }) =>
+    requestJson('https://api.example.com/items', {
+      signal,
+      decode: decodeItems,
+    }),
   meta: {
     operationName: 'list_items',
     persist: true,
@@ -145,10 +164,19 @@ const result = useQuery({
 });
 ```
 
+`requestJson` deliberately returns `unknown` unless a decoder validates the response. A decoder can
+be a small hand-written guard or a schema library adapter, but it must turn `unknown` into the type
+the feature consumes; a TypeScript generic alone does not validate untrusted JSON. Decoder failures
+become non-retryable `response-validation-failed` errors. For a successful 204/205 endpoint, pass
+`expectEmpty: true` instead. The client also validates timeout values and preserves whether an abort
+came from its timeout or the caller.
+
 Persistence is denied by default. A successful query is stored only when `meta.persist` is `true`
-and `meta.sensitive` is not `true`. The persisted cache expires after 24 hours and is cleared when
-its schema buster changes or restoration fails. Never persist tokens, credentials, sensitive user
-records, or very large responses. `clearPersistedServerState()` clears both memory and disk state.
+and `meta.sensitive` is not `true`. Cached reads expire after 24 hours. The mutation outbox is stored
+separately and retained for 30 days, so query-cache expiry can never silently discard a queued
+write. Each store has its own schema buster and corruption handling. Never persist tokens,
+credentials, sensitive user records, or very large responses. `clearPersistedServerState()` clears
+memory, the read cache, and the outbox.
 
 ## Error handling and retries
 
@@ -190,7 +218,10 @@ configureObservability({
 ```
 
 Until an adapter is configured, calls are safe no-ops. Analytics additionally remains disabled
-until the user grants consent in Settings. Withdrawing consent resets the analytics identity.
+until the user grants consent in Settings. Withdrawing consent takes effect in memory immediately
+and resets the analytics identity even if storage is unavailable. Granting consent and ordinary
+settings publish to other subscribers only after their serialized AsyncStorage write succeeds;
+failures stay visible in Settings and are sent to the error reporter.
 Events are typed in `src/observability/types.ts` and automatically include platform, app/build
 version, locale, environment, and a per-launch session id. Keys resembling credentials, tokens,
 cookies, email, phone, or address data are redacted, and adapter failures never affect app behavior.
@@ -216,13 +247,14 @@ registerOfflineMutation(queryClient, {
   mutationKey: ['items', 'create'],
   operationName: 'create_item',
   mutationFn: ({ idempotencyKey, ...input }) =>
-    requestJson<Item>('https://api.example.com/items', {
+    requestJson('https://api.example.com/items', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify(input),
+      decode: decodeItem,
     }),
 });
 ```
@@ -238,7 +270,18 @@ Only registered mutations that pause while offline are persisted. Variables must
 non-empty `idempotencyKey` and contain only losslessly JSON-serializable data. The server must store
 and enforce the `Idempotency-Key`; generating a client key alone does not prevent duplicate writes.
 Do not queue credentials or sensitive user data in unencrypted AsyncStorage. Paused mutations
-resume in order after cache restoration and network reconnection.
+resume in submission order after cache restoration and network reconnection. All registered
+offline writes share one serial scope by default, preserving order across mutation keys. Supply a
+`scopeId` only when two operation groups are genuinely independent and safe to replay concurrently.
+Operations older than 30 days are discarded with an analytics event and error-reporting message
+rather than disappearing silently.
+
+## Theme tokens
+
+`src/lib/theme.json` is the single source for palette tokens. TypeScript imports it through
+`src/lib/theme.ts`, while Tailwind reads the same JSON directly, preventing utility classes and
+runtime navigation/component colors from drifting apart. Keep light and dark palettes on the same
+key set; TypeScript checks that invariant.
 
 ## Configuration and secrets
 

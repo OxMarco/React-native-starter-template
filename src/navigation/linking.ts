@@ -1,9 +1,9 @@
-import type { LinkingOptions } from '@react-navigation/native';
+import {
+  getStateFromPath as getStateFromPathDefault,
+  type LinkingOptions,
+} from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { Linking } from 'react-native';
-
-import { isOnboardingComplete } from '@/lib/onboarding';
-import { errorReporter } from '@/observability/observability';
 
 import type { RootStackParamList } from './RootNavigator';
 
@@ -18,17 +18,11 @@ const ONBOARDING_ROUTES = ['Welcome'];
 //
 // The fix is to park any URL that arrives before onboarding completes and
 // replay it once the navigator has left the onboarding screens.
-let pendingUrl: string | null = null;
-let deepLinkListener: ((url: string) => void) | null = null;
+type PendingDeepLink = { kind: 'url'; value: string } | { kind: 'path'; value: string };
 
-function reportOnboardingReadFailure(context: string) {
-  return (error: unknown) => {
-    errorReporter.captureException(error, { context });
-    // Treat an unreadable flag as "not onboarded": showing onboarding twice is
-    // recoverable, silently skipping it is not.
-    return false;
-  };
-}
+let onboardingComplete = false;
+let pendingDeepLink: PendingDeepLink | null = null;
+let deepLinkListener: ((url: string) => void) | null = null;
 
 function schemePrefixes(): string[] {
   const scheme = Constants.expoConfig?.scheme;
@@ -41,24 +35,16 @@ export const linking: LinkingOptions<RootStackParamList> = {
   getInitialURL: async () => {
     const url = await Linking.getInitialURL();
     if (!url) return null;
+    if (onboardingComplete) return url;
 
-    const complete = await isOnboardingComplete().catch(
-      reportOnboardingReadFailure('linking-initial-onboarding-read')
-    );
-    if (complete) return url;
-
-    pendingUrl = url;
+    pendingDeepLink = { kind: 'url', value: url };
     return null;
   },
   subscribe: (listener) => {
     deepLinkListener = listener;
     const subscription = Linking.addEventListener('url', ({ url }) => {
-      void isOnboardingComplete()
-        .catch(reportOnboardingReadFailure('linking-event-onboarding-read'))
-        .then((complete) => {
-          if (complete) listener(url);
-          else pendingUrl = url;
-        });
+      if (onboardingComplete) listener(url);
+      else pendingDeepLink = { kind: 'url', value: url };
     });
 
     return () => {
@@ -76,20 +62,39 @@ export const linking: LinkingOptions<RootStackParamList> = {
       },
     },
   },
+  // React Navigation's web implementation reads window.location directly and
+  // does not call getInitialURL/subscribe. Gate getStateFromPath as well so a
+  // fresh browser URL cannot construct a state beyond onboarding.
+  getStateFromPath: (path, options) => {
+    const state = getStateFromPathDefault(path, options);
+    if (onboardingComplete || !state) return state;
+
+    pendingDeepLink = { kind: 'path', value: path };
+    return undefined;
+  },
 };
+
+export function setOnboardingGateComplete(complete: boolean) {
+  onboardingComplete = complete;
+}
 
 // Called on every navigation state change. Onboarding ends by replacing the
 // route with Main, which is the signal that a parked link can be delivered.
-export function replayPendingDeepLink(routeName: string | undefined) {
-  if (!pendingUrl || !routeName || ONBOARDING_ROUTES.includes(routeName)) return;
+export function replayPendingDeepLink(
+  routeName: string | undefined,
+  handleWebPath?: (path: string) => void
+) {
+  if (!pendingDeepLink || !routeName || ONBOARDING_ROUTES.includes(routeName)) return;
 
-  const url = pendingUrl;
-  pendingUrl = null;
-  deepLinkListener?.(url);
+  const pending = pendingDeepLink;
+  pendingDeepLink = null;
+  if (pending.kind === 'path') handleWebPath?.(pending.value);
+  else deepLinkListener?.(pending.value);
 }
 
 // Exposed for tests; module state otherwise leaks between cases.
 export function resetPendingDeepLink() {
-  pendingUrl = null;
+  onboardingComplete = false;
+  pendingDeepLink = null;
   deepLinkListener = null;
 }

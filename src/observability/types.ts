@@ -13,6 +13,7 @@ export type AnalyticsEventMap = {
   cache_persist_failed: { kind: AppErrorKind };
   cache_restore_failed: { kind: AppErrorKind };
   offline_mutations_resumed: { count: number };
+  offline_mutations_expired: { count: number };
 };
 
 export type AnalyticsAdapter = {

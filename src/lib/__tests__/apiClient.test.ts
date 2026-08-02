@@ -14,9 +14,11 @@ describe('requestJson', () => {
       json: async () => ({ id: 1 }),
     } as unknown as Response);
 
-    await expect(requestJson<{ id: number }>('https://example.test/item')).resolves.toEqual({
-      id: 1,
-    });
+    await expect(
+      requestJson('https://example.test/item', {
+        decode: (value) => value as { id: number },
+      })
+    ).resolves.toEqual({ id: 1 });
   });
 
   it('returns a typed rate-limit error with retry metadata', async () => {
@@ -66,5 +68,52 @@ describe('requestJson', () => {
       code: 'request-timeout',
       retryable: true,
     });
+  });
+
+  it('requires empty responses to be declared explicitly', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 204,
+      headers: { get: () => null },
+    } as unknown as Response);
+
+    await expect(requestJson('https://example.test/item')).rejects.toMatchObject({
+      code: 'unexpected-empty-response',
+    });
+    await expect(
+      requestJson('https://example.test/item', { expectEmpty: true })
+    ).resolves.toBeUndefined();
+  });
+
+  it('turns decoder failures into a typed invalid-response error', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'request-1' },
+      json: async () => ({ id: 'wrong' }),
+    } as unknown as Response);
+
+    await expect(
+      requestJson('https://example.test/item', {
+        decode: () => {
+          throw new Error('Expected a numeric id');
+        },
+      })
+    ).rejects.toMatchObject({
+      kind: 'server',
+      code: 'response-validation-failed',
+      requestId: 'request-1',
+      retryable: false,
+    });
+  });
+
+  it('rejects invalid timeout configuration before fetching', async () => {
+    const fetch = jest.spyOn(global, 'fetch');
+
+    await expect(requestJson('https://example.test/item', { timeoutMs: 0 })).rejects.toMatchObject({
+      kind: 'validation',
+      code: 'invalid-timeout',
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

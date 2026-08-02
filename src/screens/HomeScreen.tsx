@@ -22,7 +22,9 @@ export default function HomeScreen() {
   return (
     <Screen scroll edges={TAB_SCREEN_EDGES}>
       <Text className="text-sm font-semibold uppercase tracking-widest text-primary">Starter</Text>
-      <Text className="mt-2 text-3xl font-bold text-text">Your app shell is ready.</Text>
+      <Text accessibilityRole="header" aria-level={1} className="mt-2 text-3xl font-bold text-text">
+        Your app shell is ready.
+      </Text>
       <Text className="mt-3 text-base leading-6 text-muted">
         Replace these example screens with product features while keeping the shared foundation.
       </Text>
@@ -30,7 +32,12 @@ export default function HomeScreen() {
       <Card className="mt-7">
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-base font-semibold text-text">Network</Text>
+            <Text
+              accessibilityRole="header"
+              aria-level={2}
+              className="text-base font-semibold text-text">
+              Network
+            </Text>
             <Text className="mt-1 text-sm text-muted">Observed through NetInfo</Text>
           </View>
           <View className={`rounded-full px-3 py-1 ${networkBackground}`}>
@@ -40,7 +47,9 @@ export default function HomeScreen() {
       </Card>
 
       <Card className="mt-4">
-        <Text className="text-lg font-semibold text-text">Included foundation</Text>
+        <Text accessibilityRole="header" aria-level={2} className="text-lg font-semibold text-text">
+          Included foundation
+        </Text>
         <View className="mt-3 gap-3">
           {INCLUDED.map((item) => (
             <View key={item} className="flex-row items-start">
